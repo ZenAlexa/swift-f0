@@ -206,14 +206,6 @@ python tests/test_timbre_demo.py
 
 ## 📊 推荐硬件平台
 
-| 平台 | 成本 | 性能 | 推荐度 | 适用场景 |
-|------|------|------|--------|---------|
-| **树莓派 Zero 2W** | $15 | 50ms延迟 | ⭐⭐⭐⭐⭐ | MVP原型 |
-| **K210** | $5 | 100ms延迟 | ⭐⭐⭐⭐ | 便携产品 |
-| **树莓派4** | $55 | 20ms延迟 | ⭐⭐⭐⭐⭐ | 最终产品 |
-| **Jetson Nano** | $99 | 10ms延迟 | ⭐⭐⭐⭐⭐ | 高性能 |
-| ESP32-S3 | $3 | 300ms延迟 | ⭐⭐ | 不推荐* |
-
 *需大量优化工作，详见[边缘设备部署分析](docs/EDGE_DEPLOYMENT_ANALYSIS.md)
 
 ---
@@ -223,8 +215,8 @@ python tests/test_timbre_demo.py
 - ✅ **Phase 1**: 基础音色转换（已完成）
 - ✅ **Phase 2**: 自动调音（已完成）
 - ✅ **Phase 3**: 卡祖笛优化（已完成）
-- 🔄 **Phase 4**: 实时流式处理（规划中）
-- 🔄 **Phase 5**: 硬件原型（规划中）
+- 🔄 **Phase 4**: 实时流式处理（进行中）
+- 🔄 **Phase 5**: 硬件原型（进行中）
 - 💡 **Phase 6**: 商业化（远期）
 
 详见[AI卡祖笛开发路线图](docs/AI_KAZOO_ROADMAP.md)
@@ -298,7 +290,7 @@ swift-f0/
 
 ## 📄 许可证
 
-MIT License - 与SwiftF0主项目保持一致
+MIT License
 
 ---
 
@@ -314,10 +306,9 @@ MIT License - 与SwiftF0主项目保持一致
 
 - 📖 查看[快速入门指南](docs/zh-cn/QUICKSTART_CN.md)
 - 🐛 提交[Issue](https://github.com/yourusername/swift-f0/issues)
-- 💬 加入讨论（Discord待建立）
 
 ---
 
-**为AI卡祖笛项目而生 🎺🤖**
+**Make Kazoo Great Again! 🎺🤖**
 
-*版本: v0.1.2 | 最后更新: 2025-01-13*
+*版本: v0.1.2 | 最后更新: 2025-10-13*
