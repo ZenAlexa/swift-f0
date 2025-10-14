@@ -173,7 +173,12 @@ class AutoTuneQuantizer:
             self._current_scale_notes = get_scale_notes(key_name, mode)
             logger.debug(f"Auto-tune: Scale updated to {key_name} {mode}")
 
-        return key_name, mode, self._current_scale_notes
+        # Ensure non-None scale notes for return (satisfy type checker and runtime)
+        if self._current_scale_notes is None:
+            self._current_scale_notes = get_scale_notes(key_name, mode)
+
+        scale_notes: List[int] = self._current_scale_notes
+        return key_name, mode, scale_notes
 
     def set_strength(self, strength: float) -> None:
         """
