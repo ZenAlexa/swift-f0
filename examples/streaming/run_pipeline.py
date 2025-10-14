@@ -21,6 +21,7 @@ from swift_f0.streaming import (
     StreamingPipeline,
     resolve_instrument,
     OnlineKeyTracker,
+    AutoTuneQuantizer,
 )
 
 
@@ -32,6 +33,8 @@ def main() -> None:
     parser.add_argument("--tempo", type=int, default=120, help="MIDI tempo BPM")
     parser.add_argument("--simulate", action="store_true", help="Simulate realtime timing while streaming WAV")
     parser.add_argument("--print-key", action="store_true", help="Print detected key signature during streaming")
+    parser.add_argument("--autotune", action="store_true", help="Enable auto-tune (quantize notes to detected key)")
+    parser.add_argument("--autotune-strength", type=float, default=1.0, help="Auto-tune strength [0.0-1.0] (default: 1.0)")
     args = parser.parse_args()
 
     cfg = StreamConfig()
@@ -52,13 +55,32 @@ def main() -> None:
 
     sink = FileMIDISink(output_path=args.output, tempo_bpm=midi_cfg.tempo, instrument=instrument_program)
 
-    # Optional: Initialize key tracker
+    # Optional: Initialize key tracker (required for auto-tune or print-key)
     key_tracker = None
-    if args.print_key:
+    if args.print_key or args.autotune:
         key_tracker = OnlineKeyTracker(window_seconds=10.0, step_seconds=2.0)
         print("Key detection enabled (10s window, 2s update interval)")
 
-    # Run pipeline with optional key tracking
+    # Optional: Initialize auto-tune quantizer
+    autotune = None
+    if args.autotune:
+        if key_tracker is None:
+            raise RuntimeError("Auto-tune requires key tracker (internal error)")
+
+        # Validate strength parameter
+        if not 0.0 <= args.autotune_strength <= 1.0:
+            raise SystemExit(f"Error: --autotune-strength must be in [0.0, 1.0], got {args.autotune_strength}")
+
+        autotune = AutoTuneQuantizer(
+            get_key=key_tracker.current_key,
+            strength=args.autotune_strength,
+            enabled=True,
+            fallback_key=("C", "major"),
+            confidence_threshold=0.3,
+        )
+        print(f"Auto-tune enabled (strength={args.autotune_strength:.2f})")
+
+    # Run pipeline with optional key tracking and auto-tune
     last_key_print_time = 0.0
     for chunk in source.frames():
         frame = streamer.process_chunk(chunk)
@@ -74,6 +96,10 @@ def main() -> None:
                 key_name, mode, correlation = key_tracker.current_key()
                 print(f"[{frame.timestamp:.1f}s] Key: {key_name} {mode} (corr={correlation:.3f})")
                 last_key_print_time = frame.timestamp
+
+        # Apply auto-tune if enabled
+        if autotune and events:
+            events = autotune.transform(events)
 
         # Send to MIDI sink
         if events:

@@ -20,6 +20,7 @@ from .midi import FileMIDISink, RealtimeMIDISink
 from .pipeline import StreamingPipeline
 from .timbre import resolve_instrument
 from .key_detection import OnlineKeyTracker
+from .autotune import AutoTuneQuantizer
 
 __all__ = [
     "StreamConfig",
@@ -35,5 +36,6 @@ __all__ = [
     "StreamingPipeline",
     "resolve_instrument",
     "OnlineKeyTracker",
+    "AutoTuneQuantizer",
 ]
 
