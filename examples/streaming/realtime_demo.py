@@ -12,15 +12,21 @@ from __future__ import annotations
 import math
 import queue
 import signal
+import sys
 import threading
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable, List, Optional
 
 import numpy as np
 import sounddevice as sd
 
-from swift_f0.core import PitchResult, SwiftF0
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.append(str(REPO_ROOT))
+
+from swift_f0.core import SwiftF0
 
 try:
     import mido

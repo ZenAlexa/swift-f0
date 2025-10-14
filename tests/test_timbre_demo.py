@@ -6,9 +6,15 @@ This creates a synthetic audio test case and demonstrates all features.
 All test files are organized in the test_data/ directory structure.
 """
 
-import numpy as np
 import os
+import sys
 from pathlib import Path
+
+import numpy as np
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 # Define test data paths
 TEST_DATA_ROOT = Path(__file__).parent.parent / "test_data"
