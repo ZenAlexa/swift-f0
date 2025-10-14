@@ -20,6 +20,7 @@ from swift_f0.streaming import (
     FileMIDISink,
     StreamingPipeline,
     resolve_instrument,
+    OnlineKeyTracker,
 )
 
 
@@ -30,6 +31,7 @@ def main() -> None:
     parser.add_argument("--instrument", type=str, default="acoustic_grand_piano", help="GM name or program number")
     parser.add_argument("--tempo", type=int, default=120, help="MIDI tempo BPM")
     parser.add_argument("--simulate", action="store_true", help="Simulate realtime timing while streaming WAV")
+    parser.add_argument("--print-key", action="store_true", help="Print detected key signature during streaming")
     args = parser.parse_args()
 
     cfg = StreamConfig()
@@ -50,8 +52,34 @@ def main() -> None:
 
     sink = FileMIDISink(output_path=args.output, tempo_bpm=midi_cfg.tempo, instrument=instrument_program)
 
-    pipeline = StreamingPipeline(source, streamer, segmenter, sink)
-    pipeline.run()
+    # Optional: Initialize key tracker
+    key_tracker = None
+    if args.print_key:
+        key_tracker = OnlineKeyTracker(window_seconds=10.0, step_seconds=2.0)
+        print("Key detection enabled (10s window, 2s update interval)")
+
+    # Run pipeline with optional key tracking
+    last_key_print_time = 0.0
+    for chunk in source.frames():
+        frame = streamer.process_chunk(chunk)
+        events = list(segmenter.process(frame))
+
+        # Update key tracker if enabled
+        if key_tracker:
+            if events:
+                key_tracker.update(events)
+
+            # Print key periodically (throttle by step_seconds)
+            if frame.timestamp - last_key_print_time >= key_tracker.step_seconds:
+                key_name, mode, correlation = key_tracker.current_key()
+                print(f"[{frame.timestamp:.1f}s] Key: {key_name} {mode} (corr={correlation:.3f})")
+                last_key_print_time = frame.timestamp
+
+        # Send to MIDI sink
+        if events:
+            sink.send(events)
+
+    sink.finalize()
     print(f"Saved streaming MIDI to: {Path(args.output).resolve()}")
 
 
