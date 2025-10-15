@@ -158,8 +158,9 @@ class AudioSynthConfig:
                     Higher values = better quality, more CPU usage
                     44100Hz is CD quality, 48000Hz is professional audio
 
-        gain: Master volume multiplier [0.0-10.0] (default: 0.8)
+        gain: Master volume multiplier [0.0-10.0] (default: 0.3, EMERGENCY FIX降低)
               0.0 = silent, 1.0 = nominal, >1.0 = amplified (may clip)
+              EMERGENCY FIX: 0.8 → 0.3 (per user feedback: 爆音问题)
 
         soundfont_path: Path to .sf2 or .sf3 SoundFont file (REQUIRED)
                        Leave empty string for now, provide via CLI --sf2
@@ -179,14 +180,14 @@ class AudioSynthConfig:
         # For desktop demo with user-provided SoundFont
         config = AudioSynthConfig(
             sample_rate=44100.0,
-            gain=0.8,
+            gain=0.3,  # EMERGENCY FIX: 降低默认增益
             soundfont_path="/Users/you/Downloads/FluidR3_GM.sf2",
             initial_program=68,  # oboe
         )
     """
 
     sample_rate: float = 44100.0  # CD quality (per review: higher quality than 16kHz)
-    gain: float = 0.8
+    gain: float = 0.3  # EMERGENCY FIX: 0.8 → 0.3 (防止爆音)
     soundfont_path: str = ""  # MUST be provided by user (per review: no default)
     initial_program: int = 68  # oboe (kazoo-like timbre)
 
@@ -234,6 +235,11 @@ class BaseAudioSink(BaseMIDISink):
         synthesizer: AudioSynthesizerProtocol implementation (injected via constructor)
         _active_notes: Set of currently playing MIDI note numbers
 
+    EMERGENCY FIX (per user feedback: 爆音/音符堆积):
+        - MAX_ACTIVE_NOTES = 4 (强制限制，防止音符风暴)
+        - 超过限制时强制 note_off 最老音符
+        - 处理孤立 note_off（清理幽灵音符）
+
     Example:
         # Subclass must implement audio I/O
         class MyAudioSink(BaseAudioSink):
@@ -247,6 +253,9 @@ class BaseAudioSink(BaseMIDISink):
                 # Stop audio stream here
     """
 
+    # EMERGENCY FIX: 强制音符数量限制（防止音符堆积爆音）
+    MAX_ACTIVE_NOTES = 4  # 单声部哼唱最多 4 个音符（含 split 缓冲）
+
     def __init__(self, synthesizer: AudioSynthesizerProtocol) -> None:
         """
         Initialize with synthesizer (Dependency Inversion: depend on protocol).
@@ -257,10 +266,16 @@ class BaseAudioSink(BaseMIDISink):
         """
         self.synthesizer = synthesizer
         self._active_notes: set[int] = set()
+        self._note_start_order: list[int] = []  # EMERGENCY FIX: 记录音符启动顺序
 
     def send(self, events: Iterable[NoteEvent]) -> None:
         """
         Process MIDI events and forward to synthesizer.
+
+        EMERGENCY FIX (per user feedback: 爆音/音符堆积):
+        - 强制音符数量限制（MAX_ACTIVE_NOTES = 4）
+        - 超过限制时自动 note_off 最老音符
+        - 处理孤立 note_off（清理可能的幽灵音符）
 
         Single Responsibility: only event routing, no audio I/O here.
         Subclasses may override to add thread safety (e.g., RealtimeAudioSink).
@@ -282,11 +297,35 @@ class BaseAudioSink(BaseMIDISink):
         """
         for event in events:
             if event.type == "note_on":
+                # EMERGENCY FIX: 音符数量限制（防止堆积爆音）
+                if len(self._active_notes) >= self.MAX_ACTIVE_NOTES:
+                    # 强制关闭最老的音符（FIFO）
+                    if self._note_start_order:
+                        oldest_note = self._note_start_order.pop(0)
+                        self.synthesizer.note_off(0, oldest_note)
+                        self._active_notes.discard(oldest_note)
+                        logger.warning(
+                            f"🚨 EMERGENCY: Force note_off {oldest_note} "
+                            f"(limit={self.MAX_ACTIVE_NOTES}, active={len(self._active_notes)})"
+                        )
+
                 self.synthesizer.note_on(0, event.note, event.velocity)
                 self._active_notes.add(event.note)
+                self._note_start_order.append(event.note)
+
             elif event.type == "note_off":
-                self.synthesizer.note_off(0, event.note)
-                self._active_notes.discard(event.note)
+                # EMERGENCY FIX: 处理孤立 note_off（清理幽灵音符）
+                if event.note in self._active_notes:
+                    # 正常的 note_off（有对应 note_on）
+                    self.synthesizer.note_off(0, event.note)
+                    self._active_notes.discard(event.note)
+                    if event.note in self._note_start_order:
+                        self._note_start_order.remove(event.note)
+                else:
+                    # 孤立的 note_off（没有对应 note_on）
+                    # 仍然发送给 FluidSynth 清理可能的幽灵音符
+                    self.synthesizer.note_off(0, event.note)
+                    logger.debug(f"Orphan note_off: {event.note} (may clean ghost note)")
 
     def finalize(self) -> None:
         """
@@ -559,6 +598,7 @@ class RealtimeAudioSink(BaseAudioSink):
         self,
         config: AudioSynthConfig,
         block_size: int = 256,
+        output_device: int | str | None = None,
     ) -> None:
         """
         Initialize real-time audio sink.
@@ -590,6 +630,8 @@ class RealtimeAudioSink(BaseAudioSink):
         self.block_size = block_size
         self.stream = None
         self._lock = threading.Lock()  # Thread safety for FluidSynth calls
+        self._output_device = output_device
+        self._out_channels = 2  # Will be validated against device
 
         # Start audio stream (audio thread starts immediately)
         self._start_audio_stream()
@@ -637,69 +679,202 @@ class RealtimeAudioSink(BaseAudioSink):
         status,
     ) -> None:
         """
-        Sounddevice callback (called from audio thread).
+        Sounddevice callback with CRITICAL safety enhancements.
 
-        Single Responsibility: only generate samples and write to buffer.
-        Law of Demeter: only calls synthesizer.get_samples(), no internal access.
+        PHASE 1 Enhancement (industry best practices):
+        1. Hard silence enforcement when no active notes (absolute silence goal)
+        2. Soft clipping with tanh (DAW-standard, prevents harsh distortion)
+        3. Increased safety headroom: -6dB → -10.5dB (more conservative)
+        4. NaN/Inf protection (always first in safety pipeline)
 
         Thread Safety: Uses same _lock as send() to protect FluidSynth.
 
         Args:
-            outdata: Output buffer to fill, shape (frames, 2) for stereo
+            outdata: Output buffer to fill, shape (frames, channels)
             frames: Number of frames to generate (should match block_size)
             time_info: Timing information (unused)
             status: PortAudio status flags
 
+        Per evaluation:
+        - Soft clipping (tanh) before gain reduction (preserves timbre better)
+        - Hard silence when no notes (CRITICAL for "absolute silence" goal)
+        - Safety pipeline order: NaN/Inf → tanh → gain → downmix
+
         Note:
             This runs in real-time audio thread. Keep it FAST.
-            - No file I/O
-            - No network I/O
-            - Minimal logging (logger.debug only, per review)
-            - No blocking operations except lock (which is fast)
-
-        Performance:
-            For block_size=256 @ 44.1kHz:
-            - Available time: 5.8ms
-            - Lock acquisition: ~1 microsecond
-            - get_samples(): ~100 microseconds
-            - Total: ~101 microseconds (1.7% of available time)
-            - Safe margin for real-time processing
+            Performance budget: ~5.8ms @ 256 samples/44.1kHz
         """
-        # Minimal logging to avoid callback blocking (per review)
+        # Minimal logging to avoid callback blocking
         if status and status.output_underflow:
             logger.debug(f"Audio underflow: {status}")
 
         with self._lock:
+            # PHASE 1: Hard silence enforcement (CRITICAL for "absolute silence" goal)
+            # Industry practice: zero output when no active notes
+            # Prevents residual feedback and ensures "安静时绝对静音"
+            if len(self._active_notes) == 0:
+                outdata.fill(0.0)
+                return
+
             # Generate samples (interleaved stereo: frames*2 length)
             samples = self.synthesizer.get_samples(frames)
 
-            # Reshape to (frames, 2) for sounddevice stereo format
-            samples_stereo = samples.reshape(-1, 2)
+            # PHASE 1: Safety pipeline (industry-standard order)
+            # Step 1: NaN/Inf protection (always first, prevents corruption)
+            samples = np.nan_to_num(samples, nan=0.0, posinf=0.0, neginf=0.0)
 
-            # Write to output buffer
-            outdata[:] = samples_stereo
+            # Step 2: Soft clipping with tanh (DAW-standard, smoother than hard clip)
+            # Per evaluation: tanh before gain reduction (preserves harmonic content)
+            # tanh maps (-inf, inf) → (-1, 1) smoothly, unlike clip's sharp corner
+            # Industry practice: apply before gain for more natural saturation
+            samples = np.tanh(samples * 0.8)  # Pre-saturate slightly (warmth)
+
+            # Step 3: Safety headroom (FluidSynth wiki: -6 to -12 dB for live use)
+            # Per evaluation: -10.5 dB (0.3x) safer than previous -6 dB (0.5x)
+            # Provides margin against feedback escalation
+            samples = samples * 0.3  # -10.5 dB headroom
+
+            # Reshape to (frames, 2) for stereo
+            stereo = samples.reshape(-1, 2)
+
+            if self._out_channels == 1:
+                # Downmix to mono: (L+R)/2
+                mono = stereo.mean(axis=1, keepdims=True)
+                outdata[:,:] = mono
+            else:
+                # Write stereo output
+                outdata[:] = stereo
 
     def _start_audio_stream(self) -> None:
         """
-        Start sounddevice output stream.
+        Start sounddevice output stream with comprehensive device diagnostics.
+
+        PHASE 1 Enhancement:
+        - Detailed device capability logging (name, channels, sample rate)
+        - Sample rate mismatch warnings (FluidSynth best practice)
+        - Clear failure messages with actionable guidance
+        - Automatic fallback to mono with informative logging
+
+        Industry practice (per evaluation):
+        - Always log device configuration before starting stream
+        - Warn about potential issues (sample rate mismatch, HDMI quirks)
+        - Provide clear error messages with solutions
 
         Note:
             This immediately starts the audio thread.
             _audio_callback() will be called every block_size samples.
         """
-        self.stream = sd.OutputStream(  # type: ignore
-            samplerate=self.config.sample_rate,
-            blocksize=self.block_size,
-            dtype="float32",
-            channels=2,  # stereo
-            callback=self._audio_callback,
-        )
-        self.stream.start()
+        # PHASE 1: Query and log device capabilities (Q-SYS AEC pattern)
+        channels = 2
+        device_name = "Default Output"
+        default_sr = 44100
+        try:
+            if self._output_device is not None:
+                dev_info = sd.query_devices(self._output_device)  # type: ignore[call-overload]
+            else:
+                dev_info = sd.query_devices(kind='output')  # type: ignore[call-overload]
+
+            # Type guard: dev_info is dict when single device queried
+            if isinstance(dev_info, dict):
+                device_name = dev_info.get('name', 'Unknown Device')
+                max_ch = int(dev_info.get('max_output_channels', 2))
+                default_sr = int(dev_info.get('default_samplerate', 44100))
+            else:
+                # Fallback if query returns unexpected type
+                device_name = "Unknown Device"
+                max_ch = 2
+                default_sr = 44100
+
+            # PHASE 1: Comprehensive device diagnostics (industry best practice)
+            logger.info("=" * 70)
+            logger.info("PHASE 1: OUTPUT DEVICE DIAGNOSTICS")
+            logger.info("-" * 70)
+            logger.info(f"  Device Name: {device_name}")
+            logger.info(f"  Max Output Channels: {max_ch}")
+            logger.info(f"  Device Default Sample Rate: {default_sr} Hz")
+            logger.info(f"  Requested Sample Rate: {int(self.config.sample_rate)} Hz")
+
+            # PHASE 1: Sample rate mismatch warning (FluidSynth wiki guidance)
+            if abs(default_sr - self.config.sample_rate) > 100:
+                logger.warning(
+                    f"  ⚠️  SAMPLE RATE MISMATCH DETECTED:\n"
+                    f"      Device prefers {default_sr} Hz, but synthesis is at {int(self.config.sample_rate)} Hz.\n"
+                    f"      This may cause resampling artifacts or increased latency.\n"
+                    f"      Recommendation: Use --sample-rate {default_sr} for optimal performance."
+                )
+
+            # PHASE 1: Device-specific warnings (macOS common issues)
+            if "HDMI" in device_name or "DisplayPort" in device_name or "VG2481" in device_name:
+                logger.warning(
+                    f"  ⚠️  HDMI/DisplayPort MONITOR DETECTED:\n"
+                    f"      System volume control may not affect output (digital passthrough).\n"
+                    f"      If you experience feedback, switch to headphones or USB audio interface."
+                )
+
+            channels = 2 if max_ch >= 2 else 1 if max_ch >= 1 else 0
+            logger.info(f"  Selected Channels: {channels} ({'stereo' if channels == 2 else 'mono'})")
+
+        except Exception as e:
+            logger.warning(f"  Device query failed: {e}")
+            logger.warning(f"  Falling back to default: channels=2, sample_rate={self.config.sample_rate}Hz")
+            channels = 2
+
+        if channels == 0:
+            logger.error("=" * 70)
+            raise RuntimeError(
+                f"Selected output device '{device_name}' does not support audio output.\n"
+                f"Max output channels reported as 0. Please choose a different device with --output-device."
+            )
+
+        self._out_channels = channels
+
+        # PHASE 1: Try to open stream with detailed error handling
+        try:
+            logger.info(f"  Attempting to start stream: {self._out_channels} ch, {self.block_size} samples/block")
+            self.stream = sd.OutputStream(  # type: ignore
+                samplerate=self.config.sample_rate,
+                blocksize=self.block_size,
+                dtype="float32",
+                channels=self._out_channels,
+                callback=self._audio_callback,
+                device=self._output_device,
+            )
+            self.stream.start()
+            logger.info(f"  ✅ Stream started successfully")
+
+        except Exception as e:
+            msg = str(e)
+            logger.error(f"  ❌ Stream start failed: {msg}")
+
+            # PHASE 1: Intelligent fallback with clear logging
+            if "Invalid number of channels" in msg and self._out_channels > 1:
+                logger.info(f"  🔄 Retrying with mono (1 channel) as fallback...")
+                self._out_channels = 1
+                try:
+                    self.stream = sd.OutputStream(  # type: ignore
+                        samplerate=self.config.sample_rate,
+                        blocksize=self.block_size,
+                        dtype="float32",
+                        channels=1,
+                        callback=self._audio_callback,
+                        device=self._output_device,
+                    )
+                    self.stream.start()
+                    logger.info(f"  ✅ Stream started successfully (mono fallback)")
+                except Exception as e2:
+                    logger.error(f"  ❌ Mono fallback also failed: {e2}")
+                    logger.error("=" * 70)
+                    raise
+            else:
+                logger.error("=" * 70)
+                raise
+
+        # PHASE 1: Performance metrics logging
         latency_ms = self.block_size / self.config.sample_rate * 1000
-        logger.info(
-            f"Audio stream started: {self.config.sample_rate}Hz, "
-            f"block={self.block_size}, latency≈{latency_ms:.1f}ms"
-        )
+        logger.info(f"  Block Size: {self.block_size} samples")
+        logger.info(f"  Estimated Latency: ~{latency_ms:.1f} ms (one-way)")
+        logger.info(f"  Total Round-Trip Latency: ~{latency_ms * 2:.1f} ms (mic→speaker)")
+        logger.info("=" * 70)
 
     def program_change(self, program: int) -> None:
         """
