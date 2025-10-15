@@ -128,10 +128,10 @@ class SwiftF0:
         )
         self.pitch_input_name = self.pitch_session.get_inputs()[0].name
 
-    def _extract_pitch_and_confidence(
+    def extract_pitch_and_confidence(
         self, audio_16k: np.ndarray
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Run the ONNX model to extract pitch and confidence.
+        """Run the ONNX model to extract pitch and confidence (public API for streaming).
 
         Args:
             audio_16k: Mono audio at 16kHz sampling rate
@@ -142,6 +142,7 @@ class SwiftF0:
         Notes:
             - Automatically pads short audio to minimum required length
             - Handles model input formatting and output extraction
+            - Public API for streaming use (renamed from _extract_pitch_and_confidence)
         """
         # Validate input audio
         if audio_16k.ndim != 1:
@@ -246,7 +247,7 @@ class SwiftF0:
             audio_16k = audio_array.astype(np.float32)
 
         # Extract pitch and confidence
-        pitch_hz, confidence = self._extract_pitch_and_confidence(audio_16k)
+        pitch_hz, confidence = self.extract_pitch_and_confidence(audio_16k)
 
         # Compute voicing decisions
         voicing = self._compute_voicing(pitch_hz, confidence)

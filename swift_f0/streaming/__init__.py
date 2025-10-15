@@ -28,6 +28,12 @@ from .synthesis import (
     FluidSynthBackend,
     RealtimeAudioSink,
 )
+from .soundfont_utils import (
+    find_soundfonts,
+    get_default_soundfont,
+    list_available_soundfonts,
+    resolve_soundfont_path,
+)
 
 __all__ = [
     "StreamConfig",
@@ -49,5 +55,9 @@ __all__ = [
     "BaseAudioSink",
     "FluidSynthBackend",
     "RealtimeAudioSink",
+    "find_soundfonts",
+    "get_default_soundfont",
+    "list_available_soundfonts",
+    "resolve_soundfont_path",
 ]
 

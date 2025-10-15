@@ -2,39 +2,105 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+---
 
-## [0.1.2] - 2025-07-25
-
-### Added
-- **Note Segmentation**: New `segment_notes()` function to convert pitch contours into discrete musical notes
-- **MIDI Export**: `export_to_midi()` function to save note segments as standard MIDI files  
-- **Note Visualization**: `plot_notes()` for piano roll visualization of segmented notes
-- **Combined Analysis**: `plot_pitch_and_notes()` for unified pitch contour + note segment visualization
-- **Advanced Note Parameters**: Configurable segmentation thresholds and duration constraints
-- **NoteSegment Dataclass**: Structured representation of musical notes with timing and pitch information
-- **Full Documentation**: Complete API reference for all new musical analysis features
-- **Web Demo:** Interactive, browser-based demo using WebAssembly and ONNX.js.
-
-### Changed
-- Updated README with complete workflow examples including musical note analysis
-
-## [0.1.1] - 2025-07-08
-
-### Changed
-- Renamed package from `swift_f0` to `swift-f0` for consistency with PyPI naming conventions
-
-## [0.1.0] - 2025-07-08
+## [1.1.0] - 2025-10-15
 
 ### Added
-- Initial release of SwiftF0 pitch detection library
-- Core pitch detection functionality via ONNX model
-- `SwiftF0` class with audio file and array processing capabilities
-- `PitchResult` dataclass for structured pitch detection results
-- Basic visualization with `plot_pitch()` function
-- CSV export functionality with `export_to_csv()`
-- PyPI packaging and distribution setup
-- Comprehensive documentation and installation instructions
-- Support for frequencies between 46.875 Hz and 2093.75 Hz (G1 to C7)
-- Real-time analysis optimization (132 ms for 5 seconds of audio on CPU)
+- **SoundFont Auto-Discovery** (`swift_f0/streaming/soundfont_utils.py`)
+  - Automatic `.sf2`/`.sf3` file detection in common locations
+  - `find_soundfonts()` - Search for available SoundFonts
+  - `get_default_soundfont()` - Get largest (highest quality) SoundFont
+  - `list_available_soundfonts()` - Print available files with sizes
+  - `resolve_soundfont_path()` - Support `"auto"` keyword for discovery
+
+- **Organized Documentation Structure**
+  - Created `docs/archive/` for outdated documents
+  - New `docs/README.md` with clear navigation
+  - Moved 6 superseded documents to archive
+
+- **SoundFonts Directory** (`soundfonts/`)
+  - Dedicated directory for `.sf2`/`.sf3` files
+  - `soundfonts/README.md` with download instructions
+  - Quality comparison table
+  - Auto-excluded from git (`.gitignore`)
+
+- **Test Suite Reorganization**
+  - `tests/unit/` - Fast unit tests
+  - `tests/integration/` - Multi-component tests
+  - `tests/examples/` - Example demonstrations
+  - `tests/README.md` - Test documentation
+  - New tests:
+    - `test_soundfont_discovery.py` - SoundFont utilities
+    - `test_realtime_pipeline.py` - Full pipeline integration
+
+### Changed
+- **SOLID Refactoring** (Dependency Inversion Principle)
+  - Extracted `swift_f0/music_theory.py` from `music_enhanced.py`
+  - Eliminated circular dependency between offline and streaming modules
+  - Both modules now depend on shared abstraction
+  - Reduced code duplication by ~180 lines
+
+- **Public API Improvement** (Interface Segregation Principle)
+  - Renamed `SwiftF0._extract_pitch_and_confidence()` → `extract_pitch_and_confidence()`
+  - Streaming modules now use public API instead of private methods
+  - Updated all references in core and examples
+
+- **Updated Imports** (Dependency Inversion)
+  - `streaming/key_detection.py` - Now imports from `music_theory`
+  - `streaming/autotune.py` - Now imports from `music_theory`
+  - `streaming/timbre.py` - Now imports from `music_theory`
+  - `music_enhanced.py` - Re-exports for backward compatibility
+
+### Fixed
+- Thread safety documentation in `RealtimeAudioSink`
+- Test assertions for integration tests
+- Import paths for better modularity
+
+### Documentation
+- Completely rewrote `README.md` for technical team
+- Added `REFACTORING_SUMMARY.md` - Detailed SOLID refactoring report
+- Updated `docs/README.md` - Clear document organization
+- Created `tests/README.md` - Test suite guide
+- Created `soundfonts/README.md` - SoundFont management
+
+---
+
+## [1.0.0] - 2025-10-14
+
+### Added
+- Real-time audio synthesis with FluidSynth backend
+- `swift_f0/streaming/synthesis.py` module
+- Real-time auto-tune quantization
+- Online key detection
+- Unit tests for key tracker and auto-tune
+
+### Changed
+- Updated realtime demo to support audio synthesis mode
+
+---
+
+## [0.2.0] - 2025-10-13
+
+### Added
+- Streaming framework (`swift_f0/streaming/`)
+- Real-time note segmentation
+- MIDI file and virtual port output
+- Streaming examples and tests
+
+### Changed
+- Modularized music utilities
+- Added GM instrument mapping
+
+---
+
+## [0.1.0] - 2025-10-06
+
+### Added
+- Initial release with core pitch detection
+- Offline batch processing
+- Basic test suite
+
+---
+
+**Maintainer**: Adrian

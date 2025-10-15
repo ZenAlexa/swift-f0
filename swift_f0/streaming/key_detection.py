@@ -13,7 +13,7 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 
-from ..music_enhanced import KEY_NAMES, MAJOR_PROFILE, MINOR_PROFILE
+from ..music_theory import KEY_NAMES, MAJOR_PROFILE, MINOR_PROFILE
 from .types import NoteEvent
 
 

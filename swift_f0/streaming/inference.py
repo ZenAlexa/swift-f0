@@ -36,7 +36,7 @@ class SwiftF0Streamer:
         self.buffer[-self.hop :] = chunk
 
         # Run model on full window, take newest frame
-        pitch_hz, conf = self.detector._extract_pitch_and_confidence(self.buffer)
+        pitch_hz, conf = self.detector.extract_pitch_and_confidence(self.buffer)
         # last frame
         p = float(pitch_hz[-1]) if len(pitch_hz) else 0.0
         c = float(conf[-1]) if len(conf) else 0.0

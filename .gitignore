@@ -65,3 +65,8 @@ test_data/batch_outputs/*.mid
 # 文档构建
 docs/_build/
 site/
+
+# SoundFonts (large binary files, users should download their own)
+soundfonts/*.sf2
+soundfonts/*.sf3
+!soundfonts/README.md

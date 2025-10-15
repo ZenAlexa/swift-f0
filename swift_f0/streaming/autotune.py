@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from typing import Callable, List, Tuple
 
-from ..music_enhanced import KEY_NAMES, get_scale_notes, quantize_to_scale
+from ..music_theory import KEY_NAMES, get_scale_notes, quantize_to_scale
 from .types import NoteEvent
 
 

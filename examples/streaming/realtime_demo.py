@@ -239,7 +239,7 @@ def inference_worker(
         chunk = chunk.reshape(-1).astype(np.float32)
         history = window.update(chunk)
 
-        pitch_hz, confidence = detector._extract_pitch_and_confidence(history)
+        pitch_hz, confidence = detector.extract_pitch_and_confidence(history)
         if len(pitch_hz) == 0:
             continue
 

@@ -53,7 +53,7 @@ def resolve_instrument(name_or_num: str | int) -> int:
             pass
 
         # Look up in GM_INSTRUMENTS map
-        from ..music_enhanced import GM_INSTRUMENTS
+        from ..music_theory import GM_INSTRUMENTS
 
         if name_or_num not in GM_INSTRUMENTS:
             raise ValueError(
