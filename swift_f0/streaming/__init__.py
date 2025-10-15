@@ -21,6 +21,13 @@ from .pipeline import StreamingPipeline
 from .timbre import resolve_instrument
 from .key_detection import OnlineKeyTracker
 from .autotune import AutoTuneQuantizer
+from .synthesis import (
+    AudioSynthesizerProtocol,
+    AudioSynthConfig,
+    BaseAudioSink,
+    FluidSynthBackend,
+    RealtimeAudioSink,
+)
 
 __all__ = [
     "StreamConfig",
@@ -37,5 +44,10 @@ __all__ = [
     "resolve_instrument",
     "OnlineKeyTracker",
     "AutoTuneQuantizer",
+    "AudioSynthesizerProtocol",
+    "AudioSynthConfig",
+    "BaseAudioSink",
+    "FluidSynthBackend",
+    "RealtimeAudioSink",
 ]
 

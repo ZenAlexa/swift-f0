@@ -27,6 +27,11 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.append(str(REPO_ROOT))
 
 from swift_f0.core import SwiftF0
+from swift_f0.streaming import (
+    AudioSynthConfig,
+    RealtimeAudioSink,
+    NoteEvent,
+)
 
 try:
     import mido
@@ -150,7 +155,15 @@ class RealtimeNoteSegmenter:
 
 
 class RealtimeMIDISender:
-    """Wrapper around mido for realtime MIDI output."""
+    """
+    Wrapper around mido for realtime MIDI output.
+
+    This class provides a BaseMIDISink-compatible interface for MIDI port output.
+    It implements send(events) and finalize() to match the unified sink interface.
+
+    Note: This is a local implementation for the demo. For production, consider
+    moving to swift_f0.streaming.midi module.
+    """
 
     def __init__(self, port_name: Optional[str] = None, instrument: int = 56) -> None:
         if mido is None:
@@ -165,20 +178,37 @@ class RealtimeMIDISender:
         self.active_notes: set[int] = set()
 
     def program_change(self, program: int) -> None:
+        """Change instrument program."""
         self.port.send(mido.Message("program_change", program=program))
 
-    def note_on(self, note: int, velocity: int, timestamp: float) -> None:
-        self.active_notes.add(note)
-        self.port.send(mido.Message("note_on", note=note, velocity=velocity, time=0))
+    def send(self, events: Iterable[NoteEvent]) -> None:
+        """
+        Process MIDI events and send to port (BaseMIDISink interface).
 
-    def note_off(self, note: int, timestamp: float) -> None:
-        if note in self.active_notes:
-            self.port.send(mido.Message("note_off", note=note, velocity=0, time=0))
-            self.active_notes.discard(note)
+        Args:
+            events: Iterable of NoteEvent objects
+        """
+        for event in events:
+            if event.type == "note_on":
+                self.active_notes.add(event.note)
+                self.port.send(mido.Message("note_on", note=event.note, velocity=event.velocity, time=0))  # type: ignore
+            elif event.type == "note_off":
+                if event.note in self.active_notes:
+                    self.port.send(mido.Message("note_off", note=event.note, velocity=0, time=0))  # type: ignore
+                    self.active_notes.discard(event.note)
 
-    def close(self) -> None:
+    def finalize(self) -> None:
+        """
+        Stop all active notes and close port (BaseMIDISink interface).
+
+        This method is called by the unified cleanup code.
+        """
+        # Stop all active notes
         for note in list(self.active_notes):
-            self.note_off(note, time.time())
+            self.port.send(mido.Message("note_off", note=note, velocity=0, time=0))  # type: ignore
+        self.active_notes.clear()
+
+        # Close MIDI port
         self.port.close()
 
 
@@ -231,31 +261,107 @@ def inference_worker(
 
 def postprocessing_worker(
     pitch_queue: queue.Queue,
-    midi_sender: RealtimeMIDISender,
+    sink,  # BaseMIDISink (abstract) - can be RealtimeMIDISender or RealtimeAudioSink
     segmenter: RealtimeNoteSegmenter,
     stop_event: threading.Event,
 ) -> None:
+    """
+    Process pitch frames and send note events to sink.
+
+    Args:
+        pitch_queue: Queue of PitchFrame objects from inference worker
+        sink: Any BaseMIDISink implementation (MIDI port or audio synthesis)
+        segmenter: Real-time note segmentation state machine
+        stop_event: Signal to stop worker
+    """
     while not stop_event.is_set():
         try:
             frame: PitchFrame = pitch_queue.get(timeout=0.1)
         except queue.Empty:
             continue
 
+        # Convert dict events to NoteEvent objects (per review: unified type)
+        events = []
         for event in segmenter.process(frame):
-            if event["type"] == "note_on":
-                midi_sender.note_on(event["note"], event["velocity"], event["time"])
-            elif event["type"] == "note_off":
-                midi_sender.note_off(event["note"], event["time"])
+            events.append(
+                NoteEvent(
+                    type=event["type"],
+                    note=event["note"],
+                    time=event["time"],
+                    velocity=event.get("velocity", 80),
+                )
+            )
+
+        # Send to sink (unified interface: MIDI or audio)
+        if events:
+            sink.send(events)
 
 
 def main() -> None:
+    import argparse
+
+    # Parse command-line arguments (per review: --audio, --instrument, --sf2)
+    parser = argparse.ArgumentParser(
+        description="SwiftF0 real-time demo: Microphone → MIDI/Audio output"
+    )
+    parser.add_argument(
+        "--audio",
+        action="store_true",
+        help="Use audio synthesis output (default: MIDI virtual port)",
+    )
+    parser.add_argument(
+        "--instrument",
+        type=int,
+        default=68,
+        help="GM instrument program [0-127] (default: 68=oboe)",
+    )
+    parser.add_argument(
+        "--sf2",
+        type=str,
+        default="",
+        help="Path to SoundFont (.sf2) file (required for --audio mode)",
+    )
+    parser.add_argument(
+        "--sample-rate",
+        type=int,
+        default=44100,
+        help="Audio output sample rate (default: 44100Hz for better quality)",
+    )
+    args = parser.parse_args()
+
+    # Validate audio mode requirements
+    if args.audio and not args.sf2:
+        parser.error(
+            "--audio mode requires --sf2 <path/to/soundfont.sf2>\n"
+            "Download options:\n"
+            "  FluidR3 GM: https://member.keymusician.com/Member/FluidR3_GM/FluidR3_GM.tar.gz\n"
+            "  GeneralUser GS: https://schristiancollins.com/generaluser.php"
+        )
+
     audio_queue: queue.Queue = queue.Queue(maxsize=8)
     pitch_queue: queue.Queue = queue.Queue(maxsize=32)
     stop_event = threading.Event()
 
     detector = SwiftF0(confidence_threshold=CONFIDENCE_THRESHOLD)
     segmenter = RealtimeNoteSegmenter(SPLIT_THRESHOLD, GRACE_PERIOD_FRAMES)
-    midi_sender = RealtimeMIDISender(instrument=56)
+
+    # Choose sink based on mode (Open-Closed Principle: extension, not modification)
+    if args.audio:
+        print(f"🎵 Audio synthesis mode")
+        print(f"   Instrument: {args.instrument} (GM program)")
+        print(f"   Sample rate: {args.sample_rate}Hz")
+        print(f"   SoundFont: {args.sf2}")
+        config = AudioSynthConfig(
+            sample_rate=float(args.sample_rate),
+            gain=0.8,
+            soundfont_path=args.sf2,
+            initial_program=args.instrument,
+        )
+        sink = RealtimeAudioSink(config, block_size=BLOCK_SIZE)
+    else:
+        print(f"🎹 MIDI virtual port mode")
+        print(f"   Instrument: {args.instrument}")
+        sink = RealtimeMIDISender(instrument=args.instrument)
 
     infer_thread = threading.Thread(
         target=inference_worker,
@@ -264,7 +370,7 @@ def main() -> None:
     )
     post_thread = threading.Thread(
         target=postprocessing_worker,
-        args=(pitch_queue, midi_sender, segmenter, stop_event),
+        args=(pitch_queue, sink, segmenter, stop_event),
         daemon=True,
     )
 
@@ -290,7 +396,7 @@ def main() -> None:
         while not stop_event.is_set():
             time.sleep(0.1)
 
-    midi_sender.close()
+    sink.finalize()  # Unified cleanup (MIDI or audio)
     print("Stopped.")
 
 
