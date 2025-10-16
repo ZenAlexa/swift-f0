@@ -187,7 +187,7 @@ class AudioSynthConfig:
     """
 
     sample_rate: float = 44100.0  # CD quality (per review: higher quality than 16kHz)
-    gain: float = 0.3  # EMERGENCY FIX: 0.8 → 0.3 (防止爆音)
+    gain: float = 0.2  # FluidSynth default (lower = less clipping, more polyphony)
     soundfont_path: str = ""  # MUST be provided by user (per review: no default)
     initial_program: int = 68  # oboe (kazoo-like timbre)
 

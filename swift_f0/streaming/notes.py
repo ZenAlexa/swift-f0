@@ -31,7 +31,7 @@ class RealtimeNoteSegmenter:
 
     def __init__(
         self,
-        split_threshold: float = 0.7,
+        split_threshold: float = 2.0,  # FIX B: 0.7→2.0 (减少音符抖动)
         grace_period_frames: int = 10,  # PHASE 1: 2→10 (160ms @ 16kHz/256hop)
         min_note_frames: int = 5,       # PHASE 1: 3→5 (80ms @ 16kHz/256hop)
     ):

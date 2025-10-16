@@ -44,7 +44,7 @@ SAMPLE_RATE = 16000
 BLOCK_SIZE = 256
 WINDOW_SIZE = 1024
 CONFIDENCE_THRESHOLD = 0.9
-SPLIT_THRESHOLD = 0.7
+SPLIT_THRESHOLD = 2.0  # FIX B: 0.7→2.0 (减少音符抖动，提升音质)
 GRACE_PERIOD_FRAMES = 10  # PHASE 1: 2→10 (32ms→160ms for natural pauses)
 
 
@@ -224,7 +224,8 @@ def audio_callback(indata, frames, time_info, status, audio_queue: queue.Queue) 
     try:
         audio_queue.put_nowait(indata.copy())
     except queue.Full:
-        # Drop the frame to keep latency bounded
+        # FIX C: 添加可见性警告（帮助调试流式断开问题）
+        print("⚠️  [WARN] Audio queue full - dropping frame! (推理太慢)")
         pass
 
 
@@ -336,8 +337,8 @@ def main() -> None:
     parser.add_argument(
         "--gain",
         type=float,
-        default=0.1,  # PHASE 1: 0.2 → 0.1 (safer default, -20dB instead of -14dB)
-        help="Synth gain [0.0-2.0] (default: 0.1 for maximum safety against feedback)",
+        default=0.2,  # FluidSynth 默认值，防止削波失真
+        help="Synth gain [0.0-2.0] (default: 0.2, FluidSynth standard)",
     )
     parser.add_argument(
         "--input-device",
@@ -425,8 +426,9 @@ def main() -> None:
             "  GeneralUser GS: https://schristiancollins.com/generaluser.php"
         )
 
-    audio_queue: queue.Queue = queue.Queue(maxsize=8)
-    pitch_queue: queue.Queue = queue.Queue(maxsize=32)
+    # FIX C: 增加队列容量，减少流式处理丢帧
+    audio_queue: queue.Queue = queue.Queue(maxsize=32)  # 8→32 (512ms缓冲)
+    pitch_queue: queue.Queue = queue.Queue(maxsize=64)  # 32→64
     stop_event = threading.Event()
 
     # PHASE 1: Use CLI parameters for detector and segmenter (per evaluation)
