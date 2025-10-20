@@ -44,14 +44,22 @@ htmlcov/
 .tox/
 .hypothesis/
 
-# 测试数据输出 (保留目录结构,但忽略输出文件)
+# Test data outputs (keep directory structure, ignore output files)
 test_data/outputs/**/*.mid
 test_data/outputs/**/*.wav
 test_data/outputs/**/*.png
 test_data/outputs/**/*.pdf
-test_data/batch_outputs/*.mid
-# 保留输入测试音频用于版本控制
+test_data/outputs/**/*.csv
+# Keep input test audio for version control
 !test_data/inputs/.gitkeep
+
+# Build artifacts
+*.egg-info/
+.eggs/
+swift_f0.egg-info/
+
+# Cache directories
+.pyscn/
 
 # Jupyter Notebook
 .ipynb_checkpoints

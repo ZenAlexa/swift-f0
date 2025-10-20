@@ -76,9 +76,8 @@ python examples/demo_timbre_transform.py song.wav --kazoo --auto-tune
 
 ## 📚 文档导航
 
-### 快速入门
-- 📖 [快速入门指南（中文）](docs/zh-cn/QUICKSTART_CN.md) - 10分钟上手教程
-- 📖 [完整功能文档](docs/TIMBRE_TRANSFORM_README.md) - API参考和详细示例
+### 项目结构
+- 📁 [项目结构说明](PROJECT_STRUCTURE.md) - 目录组织和开发指南
 
 ### 技术深度
 - 🏗️ [系统架构](docs/ARCHITECTURE.md) - 数据流和算法详解
@@ -88,6 +87,8 @@ python examples/demo_timbre_transform.py song.wav --kazoo --auto-tune
 ### 项目规划
 - 🗺️ [AI卡祖笛开发路线图](docs/AI_KAZOO_ROADMAP.md) - Phase 1-6规划
 - 📝 [项目总结](docs/PROJECT_SUMMARY.md) - 完整交付清单
+- 📋 [版本历史](docs/CHANGELOG.md) - 版本更新记录
+- 🔄 [迁移指南](docs/MIGRATION_GUIDE.md) - 版本迁移说明
 
 ---
 
