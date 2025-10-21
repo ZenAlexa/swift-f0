@@ -1,7 +1,27 @@
 # 技术文档
 
 > 最后更新：2024-10-21
-> 版本：v0.2.0-realtime
+> 版本：v0.3.0
+
+## 核心技术原理
+
+### 为什么能实时？
+1. **固定采样率** - 16kHz，SwiftF0模型训练优化
+2. **滑动窗口** - 不等待完整音频，增量处理
+3. **简单合成** - 查表式波形生成，避免复杂计算
+4. **流式架构** - 输入输出并行，无阻塞
+
+### 为什么准确？
+1. **CNN模型** - 深度学习提取音高特征
+2. **STFT预处理** - 时频域联合分析
+3. **置信度筛选** - 只处理高置信度帧
+4. **平滑处理** - 相位连续，避免跳变
+
+### 为什么轻量？
+1. **ONNX优化** - 模型压缩到389KB
+2. **定点计算** - 减少浮点运算
+3. **预分配缓冲** - 避免动态内存分配
+4. **单线程设计** - 简化同步开销
 
 ## 系统架构
 
@@ -118,7 +138,43 @@ config = ConfigManager().load("config/realtime_config.yaml")
 2. **增量STFT** - 只计算新数据
 3. **并行处理** - 分离I/O和处理线程
 
+## USB音频集成
+
+### 数据帧格式
+```
+[Magic:2] [SeqNum:2] [Length:2] [Data:N] [Checksum:2]
+```
+- Magic: 0xAA55 (同步标志)
+- SeqNum: 帧序号 (0-65535循环)
+- Length: 音频数据长度
+- Data: PCM音频 (int16)
+- Checksum: 校验和
+
+### 串口参数
+- 波特率: 2000000 bps
+- 数据位: 8
+- 停止位: 1
+- 无校验
+
+### 重采样
+ESP32 (24kHz) → SwiftF0 (16kHz)
+- 线性插值重采样
+- 比率: 2/3
+
 ## API接口
+
+### USBProcessor
+```python
+config = USBProcessorConfig(
+    serial_port='/dev/tty.usbmodem1101',
+    baudrate=2000000,
+    input_sample_rate=24000
+)
+processor = USBProcessor(config)
+processor.open()
+frame = processor.receiver.receive_frame()
+output = processor.process_frame(frame)
+```
 
 ### StreamProcessor
 ```python
