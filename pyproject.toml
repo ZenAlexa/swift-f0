@@ -57,3 +57,10 @@ music = ["mido", "matplotlib"]
 Homepage      = "https://github.com/lars76/swift-f0"
 "Bug Reports" = "https://github.com/lars76/swift-f0/issues"
 Source        = "https://github.com/lars76/swift-f0"
+
+[tool.setuptools]
+packages = ["swift_f0", "swift_f0.realtime"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+swift_f0 = ["*.onnx"]

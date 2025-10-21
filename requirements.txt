@@ -1,2 +1,20 @@
+# Real-time processing requirements
+# Install with: pip install -r requirements_realtime.txt
+
+# Core requirements (from main project)
 onnxruntime>=1.12.0
 numpy>=1.21.0
+
+# Audio I/O
+sounddevice>=0.4.6  # For real-time audio streaming
+
+# Configuration
+PyYAML>=6.0  # For config file parsing
+
+# Optional but recommended
+librosa>=0.10.0  # For audio resampling
+scipy>=1.10.0  # For signal processing
+
+# Optional synthesis backends
+# Uncomment if you want to use FluidSynth
+# pyfluidsynth>=1.3.0  # For soundfont synthesis (requires FluidSynth installed)

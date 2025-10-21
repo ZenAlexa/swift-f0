@@ -360,7 +360,7 @@ def plot_notes(
 
     # Use a colormap based on pitch height
     norm = colors.Normalize(vmin=midi_min, vmax=midi_max)
-    colormap = cm.viridis
+    colormap = cm.get_cmap('viridis')  # Use get_cmap for better compatibility
 
     # Plot each note as a rectangle
     for note in notes:

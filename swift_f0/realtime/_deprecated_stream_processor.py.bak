@@ -1,0 +1,277 @@
+"""
+Real-time stream processor for pitch detection and timbre transformation.
+
+This module handles the main real-time audio processing pipeline.
+"""
+
+import numpy as np
+import threading
+import queue
+from typing import Optional, Callable, Dict, Any
+from dataclasses import dataclass
+import time
+
+from ..core import SwiftF0, PitchResult
+from .audio_buffer import RingBuffer
+
+
+@dataclass
+class StreamConfig:
+    """Configuration for real-time stream processing."""
+
+    # Audio parameters
+    sample_rate: int = 16000
+    channels: int = 1
+    chunk_size: int = 256  # Samples per chunk (16ms @ 16kHz)
+
+    # Processing parameters
+    window_size: int = 1024  # STFT window size
+    hop_size: int = 256  # STFT hop size
+
+    # Buffer parameters
+    buffer_size: int = 8192  # Ring buffer size in samples
+
+    # Pitch detection parameters
+    confidence_threshold: float = 0.9
+    min_pitch: float = 80.0  # Hz
+    max_pitch: float = 800.0  # Hz
+
+    # Timbre parameters
+    instrument: str = "acoustic_grand_piano"
+    transpose: int = 0  # Semitones
+
+    # Performance parameters
+    latency_mode: str = "low"  # "low", "balanced", "quality"
+
+
+class StreamProcessor:
+    """
+    Real-time audio stream processor with pitch detection and timbre transformation.
+
+    This class manages the complete pipeline from audio input to transformed output.
+    """
+
+    def __init__(self, config: Optional[StreamConfig] = None):
+        """
+        Initialize stream processor.
+
+        Args:
+            config: Stream configuration (uses defaults if None)
+        """
+        self.config = config or StreamConfig()
+
+        # Initialize components
+        self.pitch_detector = SwiftF0(
+            confidence_threshold=self.config.confidence_threshold,
+            fmin=self.config.min_pitch,
+            fmax=self.config.max_pitch
+        )
+
+        # Buffers
+        self.input_buffer = RingBuffer(
+            capacity=self.config.buffer_size,
+            channels=self.config.channels
+        )
+        self.output_buffer = RingBuffer(
+            capacity=self.config.buffer_size,
+            channels=self.config.channels
+        )
+
+        # Processing state
+        self.is_running = False
+        self.processing_thread = None
+        self.stats_lock = threading.Lock()
+
+        # Statistics
+        self.stats = {
+            'frames_processed': 0,
+            'current_pitch': 0.0,
+            'current_confidence': 0.0,
+            'buffer_underruns': 0,
+            'buffer_overruns': 0,
+            'processing_time_ms': 0.0,
+            'latency_ms': 0.0
+        }
+
+        # Callbacks
+        self.pitch_callback: Optional[Callable] = None
+        self.audio_callback: Optional[Callable] = None
+
+    def start(self):
+        """Start real-time processing."""
+        if self.is_running:
+            return
+
+        self.is_running = True
+        self.processing_thread = threading.Thread(target=self._processing_loop)
+        self.processing_thread.daemon = True
+        self.processing_thread.start()
+
+    def stop(self):
+        """Stop real-time processing."""
+        self.is_running = False
+        if self.processing_thread:
+            self.processing_thread.join(timeout=1.0)
+            self.processing_thread = None
+
+    def process_audio_chunk(self, audio_chunk: np.ndarray) -> Optional[np.ndarray]:
+        """
+        Process a single audio chunk.
+
+        Args:
+            audio_chunk: Input audio data [samples, channels]
+
+        Returns:
+            Transformed audio or None if not ready
+        """
+        # Write to input buffer
+        if not self.input_buffer.write(audio_chunk):
+            with self.stats_lock:
+                self.stats['buffer_overruns'] += 1
+            return None
+
+        # Try to read output
+        output = self.output_buffer.read(len(audio_chunk))
+        if output is None:
+            with self.stats_lock:
+                self.stats['buffer_underruns'] += 1
+
+        return output
+
+    def _processing_loop(self):
+        """Main processing loop (runs in separate thread)."""
+
+        # Processing window buffer
+        window_buffer = np.zeros(self.config.window_size, dtype=np.float32)
+        hop_counter = 0
+
+        while self.is_running:
+            # Check if we have enough input samples
+            input_chunk = self.input_buffer.read(self.config.hop_size)
+            if input_chunk is None:
+                time.sleep(0.001)  # Wait for more data
+                continue
+
+            # Flatten to mono if needed
+            if input_chunk.shape[1] > 1:
+                input_chunk = np.mean(input_chunk, axis=1)
+            else:
+                input_chunk = input_chunk.flatten()
+
+            # Update sliding window
+            window_buffer = np.roll(window_buffer, -self.config.hop_size)
+            window_buffer[-self.config.hop_size:] = input_chunk
+
+            # Process every hop
+            hop_counter += 1
+            if hop_counter >= self.config.window_size // self.config.hop_size:
+                start_time = time.time()
+
+                # Detect pitch
+                pitch_result = self._detect_pitch_frame(window_buffer)
+
+                # Transform audio based on pitch
+                transformed_audio = self._transform_audio(
+                    input_chunk,
+                    pitch_result
+                )
+
+                # Write to output buffer
+                if transformed_audio is not None:
+                    # Reshape for buffer
+                    if self.config.channels == 1:
+                        transformed_audio = transformed_audio.reshape(-1, 1)
+                    else:
+                        # Duplicate mono to stereo if needed
+                        transformed_audio = np.tile(
+                            transformed_audio.reshape(-1, 1),
+                            (1, self.config.channels)
+                        )
+
+                    self.output_buffer.write(transformed_audio)
+
+                # Update statistics
+                processing_time = (time.time() - start_time) * 1000
+                with self.stats_lock:
+                    self.stats['frames_processed'] += 1
+                    self.stats['processing_time_ms'] = processing_time
+                    if pitch_result:
+                        self.stats['current_pitch'] = pitch_result['pitch']
+                        self.stats['current_confidence'] = pitch_result['confidence']
+
+                # Call callbacks
+                if self.pitch_callback and pitch_result:
+                    self.pitch_callback(pitch_result)
+
+    def _detect_pitch_frame(self, audio_frame: np.ndarray) -> Optional[Dict[str, float]]:
+        """
+        Detect pitch from a single frame.
+
+        Args:
+            audio_frame: Audio frame data
+
+        Returns:
+            Dictionary with pitch and confidence or None
+        """
+        try:
+            # Use SwiftF0 for pitch detection
+            result = self.pitch_detector.detect_from_array(
+                audio_frame,
+                self.config.sample_rate
+            )
+
+            # Get the most recent pitch estimate
+            if len(result.pitch_hz) > 0 and result.voicing[-1]:
+                return {
+                    'pitch': result.pitch_hz[-1],
+                    'confidence': result.confidence[-1],
+                    'midi': self._hz_to_midi(result.pitch_hz[-1])
+                }
+        except Exception as e:
+            print(f"Pitch detection error: {e}")
+
+        return None
+
+    def _transform_audio(
+        self,
+        audio_chunk: np.ndarray,
+        pitch_info: Optional[Dict[str, float]]
+    ) -> Optional[np.ndarray]:
+        """
+        Transform audio with detected pitch information.
+
+        Args:
+            audio_chunk: Input audio chunk
+            pitch_info: Detected pitch information
+
+        Returns:
+            Transformed audio or original if no transformation needed
+        """
+        # For now, return original audio
+        # TODO: Implement actual timbre transformation
+        # This will be replaced with FluidSynth or other synthesis
+        return audio_chunk
+
+    def _hz_to_midi(self, frequency: float) -> int:
+        """Convert frequency in Hz to MIDI note number."""
+        if frequency <= 0:
+            return 0
+        return int(round(69 + 12 * np.log2(frequency / 440.0)))
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get current processing statistics."""
+        with self.stats_lock:
+            return self.stats.copy()
+
+    def set_instrument(self, instrument: str):
+        """Change the target instrument."""
+        self.config.instrument = instrument
+
+    def set_transpose(self, semitones: int):
+        """Set transposition in semitones."""
+        self.config.transpose = max(-24, min(24, semitones))
+
+    def get_latency(self) -> float:
+        """Get estimated latency in milliseconds."""
+        # Latency = window_size / sample_rate * 1000
+        return (self.config.window_size / self.config.sample_rate) * 1000

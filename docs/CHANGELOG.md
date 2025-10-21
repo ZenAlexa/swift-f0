@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0-realtime] - 2024-10-21
+
+### Added
+- **Real-time Processing Module** (`swift_f0/realtime/`)
+  - `AudioStream` and `AudioStreamWithOutput` for live audio I/O
+  - `SimpleSynthesizer` for waveform generation
+  - `ConfigManager` for YAML-based configuration
+- **Sounddevice Integration** for cross-platform audio
+- **Configuration System** (`config/realtime_config.yaml`)
+- **Demo Programs**
+  - `test_simple_sine.py` - Simple sine wave synthesis
+  - `test_simple.py` - Basic functionality test
+
+### Changed
+- **Project Restructure**
+  - Consolidated documentation to core files only
+  - Archived deprecated modules (`.bak` suffix)
+  - Simplified import structure
+- **Documentation Organization**
+  - Created `DEVELOPMENT.md` for progress tracking
+  - Created `TECHNICAL.md` for implementation details
+  - Moved old docs to `archive/` folder
+
+### Fixed
+- Type checking issues in `simple_synthesizer.py`
+- Missing debug configuration in `RealtimeConfig`
+- FluidSynth import handling
+
+### Performance
+- Real-time latency: ~80ms
+- CPU usage: ~20% (single core)
+- Memory: ~350MB
+
 ## [0.1.2] - 2025-07-25
 
 ### Added

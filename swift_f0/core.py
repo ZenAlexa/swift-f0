@@ -165,7 +165,12 @@ class SwiftF0:
         if len(outputs) < 2:
             raise RuntimeError("Model returned insufficient outputs (expected 2)")
 
-        return outputs[0][0], outputs[1][0]  # pitch_hz, confidence
+        # Type assertion for Pylance - outputs are numpy arrays from ONNX
+        pitch_output = np.asarray(outputs[0])
+        confidence_output = np.asarray(outputs[1])
+
+        # Extract first element from batch dimension
+        return pitch_output[0], confidence_output[0]  # pitch_hz, confidence
 
     def _compute_voicing(
         self, pitch_hz: np.ndarray, confidence: np.ndarray
@@ -284,7 +289,8 @@ class SwiftF0:
 
         # Load audio as mono
         audio, sr = librosa.load(audio_path, sr=None, mono=True)
-        return self.detect_from_array(audio, sr)
+        # Cast sr to int since librosa might return float
+        return self.detect_from_array(audio, int(sr))
 
 
 def plot_pitch(

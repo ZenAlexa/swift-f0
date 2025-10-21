@@ -1,0 +1,58 @@
+# SwiftF0 Real-time Configuration
+# ================================
+# This is the central configuration file for all real-time processing parameters.
+# Modify these values to tune the system performance.
+
+# Audio I/O Configuration
+audio:
+  backend: "sounddevice"  # Audio backend to use
+  sample_rate: 16000      # Sample rate in Hz (SwiftF0 requires 16kHz)
+  channels: 1             # Number of channels (1=mono, 2=stereo)
+  chunk_size: 256         # Samples per chunk (16ms @ 16kHz)
+  device_in: null         # Input device ID (null for default)
+  device_out: null        # Output device ID (null for default)
+
+# Buffer Configuration
+buffer:
+  size: 8192              # Ring buffer size in samples
+  read_ahead: 512         # Read-ahead buffer for smoothing
+
+# Pitch Detection Configuration
+pitch_detection:
+  window_size: 1024       # STFT window size in samples (64ms @ 16kHz)
+  hop_size: 256           # STFT hop size in samples (16ms @ 16kHz)
+  confidence_threshold: 0.85  # Confidence threshold for voicing (0.0-1.0)
+  min_frequency: 80.0     # Minimum detectable frequency in Hz
+  max_frequency: 800.0    # Maximum detectable frequency in Hz
+
+# Synthesis Configuration
+synthesis:
+  method: "soundfont"     # Synthesis method: "soundfont", "simple", "none"
+  soundfont_path: "soundfonts/GeneralUser-GS.sf2"  # Path to SF2 file
+  default_instrument: 0   # Default GM instrument number (0-127)
+  volume: 0.8            # Output volume (0.0-1.0)
+
+  # Simple synthesis parameters (when method="simple")
+  simple:
+    waveform: "sine"     # Waveform type: "sine", "square", "sawtooth"
+    harmonics: 3         # Number of harmonics to generate
+
+# Performance Configuration
+performance:
+  latency_mode: "balanced"  # "low", "balanced", "quality"
+  thread_priority: "high"   # Thread priority: "normal", "high", "realtime"
+  cpu_limit: 50            # Maximum CPU usage percentage
+
+# Logging Configuration
+logging:
+  level: "INFO"           # Log level: "DEBUG", "INFO", "WARNING", "ERROR"
+  file: "logs/realtime.log"  # Log file path (null to disable file logging)
+  console: true           # Enable console output
+
+# Development/Debug Settings
+debug:
+  enable_stats: true      # Enable performance statistics
+  stats_interval: 1.0     # Statistics update interval in seconds
+  bypass_synthesis: false # Bypass synthesis for testing
+  save_recordings: false  # Save input/output for analysis
+  recording_path: "recordings/"  # Path to save recordings

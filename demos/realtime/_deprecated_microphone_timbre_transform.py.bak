@@ -1,0 +1,401 @@
+#!/usr/bin/env python3
+"""
+Real-time Microphone Timbre Transformation Demo
+================================================
+
+This demo captures audio from your microphone, detects pitch in real-time,
+and transforms the timbre to different instruments.
+
+Requirements:
+    - pyaudio or sounddevice
+    - numpy
+    - swift-f0 with realtime module
+
+Usage:
+    python microphone_timbre_transform.py
+
+Controls (while running):
+    - Press 1-9: Select different instruments
+    - Press +/-: Transpose up/down
+    - Press a: Toggle auto-tune
+    - Press q: Quit
+"""
+
+import sys
+import time
+import threading
+import numpy as np
+from typing import Optional
+
+# Audio I/O library selection
+try:
+    import sounddevice as sd
+    AUDIO_BACKEND = "sounddevice"
+except ImportError:
+    try:
+        import pyaudio
+        AUDIO_BACKEND = "pyaudio"
+    except ImportError:
+        print("Error: No audio I/O library found.")
+        print("Install with: pip install sounddevice")
+        print("         or: pip install pyaudio")
+        sys.exit(1)
+
+# Import SwiftF0 real-time components
+try:
+    from swift_f0.realtime import StreamProcessor, StreamConfig, TimbreEngine, TimbreConfig
+except ImportError:
+    print("Error: Real-time module not found. Make sure swift-f0 is installed.")
+    sys.exit(1)
+
+
+class MicrophoneTimbreTransformer:
+    """
+    Real-time microphone timbre transformation application.
+    """
+
+    def __init__(self, device_id: Optional[int] = None):
+        """
+        Initialize the transformer.
+
+        Args:
+            device_id: Audio device ID (None for default)
+        """
+        self.device_id = device_id
+
+        # Audio parameters
+        self.sample_rate = 16000
+        self.chunk_size = 256  # ~16ms chunks @ 16kHz
+        self.channels = 1
+
+        # Initialize stream processor
+        self.stream_config = StreamConfig(
+            sample_rate=self.sample_rate,
+            channels=self.channels,
+            chunk_size=self.chunk_size,
+            latency_mode="low",
+            confidence_threshold=0.8
+        )
+        self.processor = StreamProcessor(self.stream_config)
+
+        # Initialize timbre engine
+        self.timbre_config = TimbreConfig(
+            instrument=0,  # Acoustic Grand Piano
+            auto_tune=False,
+            volume=0.8
+        )
+        self.timbre_engine = TimbreEngine(self.timbre_config)
+
+        # Audio stream
+        self.stream = None
+        self.is_running = False
+
+        # Statistics
+        self.stats_lock = threading.Lock()
+        self.stats = {
+            'current_pitch': 0.0,
+            'current_note': '',
+            'confidence': 0.0,
+            'latency_ms': 0.0,
+            'cpu_usage': 0.0
+        }
+
+        # Instrument presets
+        self.instruments = {
+            '1': (0, "Acoustic Grand Piano"),
+            '2': (40, "Violin"),
+            '3': (56, "Trumpet"),
+            '4': (73, "Flute"),
+            '5': (25, "Acoustic Guitar"),
+            '6': (33, "Electric Bass"),
+            '7': (11, "Vibraphone"),
+            '8': (65, "Alto Sax"),
+            '9': (19, "Church Organ"),
+        }
+
+        self.current_instrument = '1'
+        self.transpose = 0
+
+    def start(self):
+        """Start real-time processing."""
+        print("Starting real-time timbre transformation...")
+        print(f"Audio backend: {AUDIO_BACKEND}")
+        print(f"Sample rate: {self.sample_rate} Hz")
+        print(f"Chunk size: {self.chunk_size} samples")
+        print(f"Latency: ~{self.chunk_size / self.sample_rate * 1000:.1f} ms")
+        print("-" * 60)
+
+        # Start processor
+        self.processor.start()
+
+        # Setup audio stream
+        if AUDIO_BACKEND == "sounddevice":
+            self._start_sounddevice()
+        else:
+            self._start_pyaudio()
+
+        self.is_running = True
+
+        # Start display thread
+        display_thread = threading.Thread(target=self._display_loop)
+        display_thread.daemon = True
+        display_thread.start()
+
+        # Start control thread
+        control_thread = threading.Thread(target=self._control_loop)
+        control_thread.daemon = True
+        control_thread.start()
+
+        print("\nControls:")
+        print("  1-9: Select instrument")
+        print("  +/-: Transpose up/down")
+        print("  a: Toggle auto-tune")
+        print("  q: Quit")
+        print("-" * 60)
+
+    def stop(self):
+        """Stop real-time processing."""
+        self.is_running = False
+
+        # Stop audio stream
+        if self.stream:
+            if AUDIO_BACKEND == "sounddevice":
+                self.stream.stop()
+                self.stream.close()
+            else:
+                self.stream.stop_stream()
+                self.stream.close()
+
+        # Stop processor
+        self.processor.stop()
+
+        # Cleanup timbre engine
+        self.timbre_engine.cleanup()
+
+        print("\nStopped.")
+
+    def _start_sounddevice(self):
+        """Start sounddevice stream."""
+
+        def audio_callback(indata, outdata, frames, time_info, status):
+            if status:
+                print(f"Audio callback status: {status}")
+
+            # Process audio
+            input_audio = indata[:, 0] if indata.shape[1] > 1 else indata.flatten()
+
+            # Get transformed audio from processor
+            output_audio = self.processor.process_audio_chunk(
+                input_audio.reshape(-1, 1)
+            )
+
+            if output_audio is not None:
+                # Apply timbre transformation if we have pitch
+                stats = self.processor.get_stats()
+                if stats['current_pitch'] > 0:
+                    output_audio = self.timbre_engine.transform_with_pitch(
+                        output_audio.flatten(),
+                        stats['current_pitch'],
+                        stats['current_confidence'],
+                        self.sample_rate
+                    )
+
+                # Write to output
+                if len(output_audio.shape) == 1:
+                    outdata[:, 0] = output_audio
+                else:
+                    outdata[:] = output_audio
+            else:
+                # Output silence if no processed audio available
+                outdata.fill(0)
+
+        # Open stream
+        self.stream = sd.Stream(
+            samplerate=self.sample_rate,
+            blocksize=self.chunk_size,
+            device=(self.device_id, self.device_id),
+            channels=(self.channels, self.channels),
+            dtype='float32',
+            callback=audio_callback
+        )
+        self.stream.start()
+
+    def _start_pyaudio(self):
+        """Start PyAudio stream."""
+        p = pyaudio.PyAudio()
+
+        def audio_callback(in_data, frame_count, time_info, status):
+            # Convert bytes to numpy
+            input_audio = np.frombuffer(in_data, dtype=np.float32)
+
+            # Process audio
+            output_audio = self.processor.process_audio_chunk(
+                input_audio.reshape(-1, 1)
+            )
+
+            if output_audio is not None:
+                # Apply timbre transformation
+                stats = self.processor.get_stats()
+                if stats['current_pitch'] > 0:
+                    output_audio = self.timbre_engine.transform_with_pitch(
+                        output_audio.flatten(),
+                        stats['current_pitch'],
+                        stats['current_confidence'],
+                        self.sample_rate
+                    )
+            else:
+                output_audio = np.zeros(frame_count, dtype=np.float32)
+
+            # Convert back to bytes
+            out_data = output_audio.astype(np.float32).tobytes()
+            return (out_data, pyaudio.paContinue)
+
+        # Open stream
+        self.stream = p.open(
+            format=pyaudio.paFloat32,
+            channels=self.channels,
+            rate=self.sample_rate,
+            frames_per_buffer=self.chunk_size,
+            input=True,
+            output=True,
+            input_device_index=self.device_id,
+            output_device_index=self.device_id,
+            stream_callback=audio_callback
+        )
+        self.stream.start_stream()
+
+    def _display_loop(self):
+        """Display real-time statistics."""
+        while self.is_running:
+            # Get processor stats
+            stats = self.processor.get_stats()
+
+            # Convert pitch to note name
+            if stats['current_pitch'] > 0:
+                midi_note = int(round(69 + 12 * np.log2(stats['current_pitch'] / 440.0)))
+                note_names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+                octave = (midi_note // 12) - 1
+                note = note_names[midi_note % 12]
+                note_str = f"{note}{octave}"
+            else:
+                note_str = "--"
+
+            # Clear line and print status
+            print(f"\rPitch: {stats['current_pitch']:6.1f} Hz | "
+                  f"Note: {note_str:4s} | "
+                  f"Conf: {stats['current_confidence']:.2f} | "
+                  f"Instrument: {self.instruments[self.current_instrument][1]:20s} | "
+                  f"Transpose: {self.transpose:+3d} | "
+                  f"Auto-tune: {'ON ' if self.timbre_config.auto_tune else 'OFF'}",
+                  end='', flush=True)
+
+            time.sleep(0.1)
+
+    def _control_loop(self):
+        """Handle keyboard controls."""
+        import select
+        import termios
+        import tty
+
+        # Save terminal settings
+        old_settings = termios.tcgetattr(sys.stdin)
+
+        try:
+            # Set terminal to raw mode
+            tty.setraw(sys.stdin.fileno())
+
+            while self.is_running:
+                # Check for keyboard input (non-blocking)
+                if select.select([sys.stdin], [], [], 0.1)[0]:
+                    key = sys.stdin.read(1).lower()
+
+                    if key == 'q':
+                        self.is_running = False
+                    elif key in self.instruments:
+                        self.current_instrument = key
+                        instrument_num, name = self.instruments[key]
+                        self.timbre_engine.set_instrument(instrument_num)
+                        print(f"\n> Changed to: {name}")
+                    elif key == '+':
+                        self.transpose = min(12, self.transpose + 1)
+                        print(f"\n> Transpose: {self.transpose:+d}")
+                    elif key == '-':
+                        self.transpose = max(-12, self.transpose - 1)
+                        print(f"\n> Transpose: {self.transpose:+d}")
+                    elif key == 'a':
+                        self.timbre_config.auto_tune = not self.timbre_config.auto_tune
+                        print(f"\n> Auto-tune: {'ON' if self.timbre_config.auto_tune else 'OFF'}")
+
+        finally:
+            # Restore terminal settings
+            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+
+    def run(self):
+        """Run the application."""
+        try:
+            self.start()
+
+            # Keep running until quit
+            while self.is_running:
+                time.sleep(0.1)
+
+        except KeyboardInterrupt:
+            print("\n\nInterrupted by user.")
+        finally:
+            self.stop()
+
+
+def list_audio_devices():
+    """List available audio devices."""
+    print("Available audio devices:")
+    print("-" * 60)
+
+    if AUDIO_BACKEND == "sounddevice":
+        devices = sd.query_devices()
+        for i, device in enumerate(devices):
+            print(f"{i:3d}: {device['name']} "
+                  f"(in:{device['max_input_channels']}, "
+                  f"out:{device['max_output_channels']})")
+    else:
+        p = pyaudio.PyAudio()
+        for i in range(p.get_device_count()):
+            info = p.get_device_info_by_index(i)
+            print(f"{i:3d}: {info['name']} "
+                  f"(in:{info['maxInputChannels']}, "
+                  f"out:{info['maxOutputChannels']})")
+        p.terminate()
+
+    print("-" * 60)
+
+
+def main():
+    """Main entry point."""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Real-time microphone timbre transformation"
+    )
+    parser.add_argument(
+        '-d', '--device',
+        type=int,
+        help='Audio device ID (use --list to see available devices)'
+    )
+    parser.add_argument(
+        '-l', '--list',
+        action='store_true',
+        help='List available audio devices'
+    )
+
+    args = parser.parse_args()
+
+    if args.list:
+        list_audio_devices()
+        return
+
+    # Run the transformer
+    transformer = MicrophoneTimbreTransformer(device_id=args.device)
+    transformer.run()
+
+
+if __name__ == "__main__":
+    main()
