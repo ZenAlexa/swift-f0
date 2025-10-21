@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
 """
-Demo: Timbre Transformation and Auto-Tuning with SwiftF0
+Advanced CLI Tool: Timbre Transformation and Auto-Tuning
+=========================================================
 
-This script demonstrates:
-1. Basic timbre transformation (change MIDI instrument)
-2. Transposition (pitch shifting)
-3. Auto-tuning (pitch correction to detected key)
-4. Kazoo optimization (range limiting)
-5. Batch processing (multiple timbres)
+A comprehensive command-line interface for audio transformation using SwiftF0.
 
-Usage:
-    python demo_timbre_transform.py input_audio.wav
-    python demo_timbre_transform.py input_audio.wav --instrument trumpet --transpose 5
-    python demo_timbre_transform.py input_audio.wav --auto-tune --strength 0.8
-    python demo_timbre_transform.py input_audio.wav --kazoo
-    python demo_timbre_transform.py input_audio.wav --batch
+Features:
+1. Timbre transformation - Change to any of 128 GM instruments
+2. Transposition - Shift pitch up or down by semitones
+3. Auto-tuning - Automatic pitch correction to detected musical key
+4. Kazoo optimization - Optimize for kazoo-like instruments with range limiting
+5. Batch processing - Generate multiple timbre versions simultaneously
+
+Usage Examples:
+    python timbre_transform_cli.py input_audio.wav
+    python timbre_transform_cli.py input_audio.wav --instrument trumpet --transpose 5
+    python timbre_transform_cli.py input_audio.wav --auto-tune --strength 0.8
+    python timbre_transform_cli.py input_audio.wav --kazoo
+    python timbre_transform_cli.py input_audio.wav --batch
 """
 
 import argparse
