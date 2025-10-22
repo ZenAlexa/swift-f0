@@ -73,6 +73,20 @@ def main():
         action='store_true',
         help='显示调试信息'
     )
+    parser.add_argument(
+        '--instrument', '-i',
+        type=str,
+        choices=['sine', 'flute', 'violin', 'clarinet'],
+        default='flute',
+        help='乐器音色 (默认: flute)'
+    )
+    parser.add_argument(
+        '--synth',
+        type=str,
+        choices=['simple', 'additive'],
+        default='additive',
+        help='合成器类型 (默认: additive)'
+    )
 
     args = parser.parse_args()
 
@@ -102,6 +116,8 @@ def main():
         serial_port=args.port,
         baudrate=args.baudrate,
         input_sample_rate=args.rate,
+        synthesizer_type=args.synth,
+        instrument=args.instrument,
         debug=args.debug
     )
 

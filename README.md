@@ -13,7 +13,7 @@ SwiftF0 是一个轻量级、高精度的实时音高检测和音色变换系统
 
 ✅ **实时音高检测** - CNN模型仅389KB，CPU即可运行
 ✅ **USB音频集成** - 支持ESP32/开发板音频输入
-✅ **音色合成** - 实时正弦波合成，可扩展至MIDI
+✅ **波表合成** - 支持长笛/小提琴/单簧管等乐器音色
 ✅ **低延迟处理** - <100ms端到端延迟
 ✅ **跨平台支持** - Windows/macOS/Linux
 
@@ -62,14 +62,21 @@ audio = np.random.randn(16000)  # 1秒音频
 result = detector.detect_from_array(audio, sample_rate=16000)
 ```
 
-### 2. 实时USB音频处理
+### 2. 实时USB音频处理（支持多种乐器音色）
 
 ```bash
 # 列出可用串口
 python demos/realtime/run_usb_audio.py --list-ports
 
-# 运行实时处理（ESP32音频输入）
+# 运行实时处理（ESP32音频输入）- 默认长笛音色
 python demos/realtime/run_usb_audio.py --port /dev/tty.usbmodem1101 --rate 24000
+
+# 使用不同乐器音色
+python demos/realtime/run_usb_audio.py --port /dev/tty.usbmodem1101 --rate 24000 --instrument violin
+python demos/realtime/run_usb_audio.py --port /dev/tty.usbmodem1101 --rate 24000 --instrument clarinet
+
+# 使用简单正弦波（向后兼容）
+python demos/realtime/run_usb_audio.py --port /dev/tty.usbmodem1101 --rate 24000 --synth simple
 ```
 
 ### 3. 实时麦克风处理
@@ -85,9 +92,9 @@ python demos/realtime/test_simple_sine.py
 ```
 输入源 → 音高检测 → 音色变换 → 音频输出
   ↓         ↓          ↓          ↓
-ESP32    SwiftF0    正弦合成   扬声器
-USB音频   CNN模型    MIDI合成   文件输出
-麦克风    16kHz      实时处理
+ESP32    SwiftF0    波表合成   扬声器
+USB音频   CNN模型    长笛/小提琴  文件输出
+麦克风    16kHz      单簧管等
 ```
 
 ---
@@ -102,23 +109,31 @@ swift-f0/
 │   ├── realtime/              # 实时处理模块
 │   │   ├── config.py          # 配置管理
 │   │   ├── audio_stream.py    # 音频流处理
-│   │   ├── simple_synthesizer.py # 音色合成
+│   │   ├── additive_synthesizer.py  # 波表合成器
+│   │   ├── wavetable_generator.py   # 波表生成
+│   │   ├── simple_synthesizer.py    # 简单合成
 │   │   └── usb_processor.py   # USB音频处理器
 │   └── usb_audio/             # USB音频接收
 │       └── receiver.py        # ESP32数据接收
 │
 ├── demos/realtime/            # 演示程序
 │   ├── run_usb_audio.py      # USB音频主程序
-│   └── test_simple_sine.py   # 简单测试
+│   ├── test_additive_synth.py # 波表合成测试
+│   └── test_simple_sine.py   # 麦克风测试
+│
+├── wavetables/                # 预生成波表
+│   ├── flute.npy             # 长笛音色
+│   ├── violin.npy            # 小提琴音色
+│   └── clarinet.npy          # 单簧管音色
 │
 ├── config/                    # 配置文件
 │   └── realtime_config.yaml
 │
 └── docs/                      # 文档
-    ├── README.md              # 文档中心
-    ├── DEVELOPMENT.md         # 开发进度
-    ├── TECHNICAL.md           # 技术细节
-    └── PROJECT_SUMMARY.md     # 项目总结
+    ├── README.md              # 文档导航中心
+    ├── TECHNICAL.md           # 技术架构详解
+    ├── DEVELOPMENT.md         # 开发进度日志
+    └── ALGORITHMS.md          # 算法索引
 ```
 
 ---
@@ -178,13 +193,18 @@ player.run()
 python demos/realtime/run_usb_audio.py [选项]
 
 选项：
-  --port PORT        串口设备 (如: /dev/tty.usbmodem1101)
-  --rate RATE        采样率 (默认: 24000)
-  --list-ports       列出可用串口
-  --debug            显示调试信息
+  --port PORT           串口设备 (如: /dev/tty.usbmodem1101)
+  --rate RATE           采样率 (默认: 24000)
+  --instrument, -i      乐器音色: flute, violin, clarinet (默认: flute)
+  --synth              合成器类型: additive, simple (默认: additive)
+  --list-ports         列出可用串口
+  --debug              显示调试信息
 
 # 麦克风测试
 python demos/realtime/test_simple_sine.py
+
+# 波表合成测试
+python demos/realtime/test_additive_synth.py
 ```
 
 ---
@@ -225,9 +245,20 @@ python demos/realtime/test_simple_sine.py
 - ✅ **核心音高检测** - 完成
 - ✅ **实时处理框架** - 完成
 - ✅ **USB音频集成** - 完成
-- ✅ **简单音色合成** - 完成
-- 🔄 **MIDI集成** - 进行中
-- 💡 **高级音色** - 计划中
+- ✅ **波表合成** - 完成 (长笛/小提琴/单簧管)
+- ✅ **声音延续修复** - 完成 (快速衰减机制)
+- 🔄 **MIDI集成** - 计划中
+- 💡 **更多音色** - 计划中
+
+---
+
+## 📚 文档导航
+
+- **[PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)** - 完整项目结构和模块依赖
+- **[docs/TECHNICAL.md](docs/TECHNICAL.md)** - 技术架构和算法原理
+- **[docs/ALGORITHMS.md](docs/ALGORITHMS.md)** - 算法快速索引
+- **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)** - 开发进度和版本历史
+- **[CLAUDE.md](CLAUDE.md)** - Claude协作框架
 
 ---
 
@@ -244,4 +275,4 @@ MIT License
 
 ---
 
-**版本**: v0.3.0 | **更新**: 2024-10-21
+**版本**: v0.4.0 | **更新**: 2024-10-22

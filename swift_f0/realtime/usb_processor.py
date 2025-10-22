@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 from swift_f0.core import SwiftF0
 from swift_f0.usb_audio import AudioFrameReceiver
+from swift_f0.realtime.additive_synthesizer import AdditiveSynthesizer
 
 
 @dataclass
@@ -31,6 +32,8 @@ class USBProcessorConfig:
 
     # 合成参数
     synthesis_amplitude: float = 0.3
+    synthesizer_type: str = 'additive'  # 'simple' 或 'additive'
+    instrument: str = 'flute'  # 乐器音色
 
     # 调试
     debug: bool = False
@@ -57,27 +60,43 @@ class USBProcessor:
         # 音频缓冲区
         self.window_buffer = np.zeros(config.window_size, dtype=np.float32)
 
+        # 合成器
+        if config.synthesizer_type == 'additive':
+            self.synthesizer = AdditiveSynthesizer(
+                sample_rate=config.input_sample_rate,
+                wavetable_dir='wavetables'
+            )
+            self.synthesizer.set_instrument(config.instrument)
+            print(f"使用加法波表合成器，乐器: {config.instrument}")
+        else:
+            # 保留简单合成器状态（原有实现）
+            self.synthesizer = None
+            self.synthesis_phase = 0.0
+            print("使用简单正弦波合成器")
+
         # 合成状态
-        self.synthesis_phase = 0.0
         self.current_freq = 0.0
         self.current_amp = 0.0
         self.target_freq = 0.0
         self.target_amp = 0.0
 
         # 平滑参数
-        self.freq_smooth = 0.9
-        self.amp_smooth = 0.95
+        self.freq_smooth = 0.85  # 降低平滑，让频率变化更快
+        self.amp_smooth = 0.85   # 降低平滑，让振幅衰减更快
 
         # 统计
         self.frames_processed = 0
         self.total_latency = 0.0
 
     def open(self) -> bool:
-        """打开串口连接"""
-        success = self.receiver.open()
-        if success and self.config.debug:
-            print(f"串口已打开: {self.config.serial_port}")
-        return success
+        """打开串口连接 - 简单重试"""
+        for attempt in range(5):
+            if self.receiver.open():
+                time.sleep(0.3)  # 让ESP32稳定
+                return True
+            self.receiver.close()
+            time.sleep(0.2)
+        return False
 
     def close(self):
         """关闭串口连接"""
@@ -139,31 +158,54 @@ class USBProcessor:
                 self.target_freq = result.pitch_hz[-1]
                 self.target_amp = self.config.synthesis_amplitude * result.confidence[-1]
             else:
+                # 没有检测到音高 - 快速衰减到静音
                 self.target_amp = 0.0
+                self.target_freq = 0.0  # 也重置频率
 
         except Exception as e:
             if self.config.debug:
                 print(f"音高检测错误: {e}")
             self.target_amp = 0.0
+            self.target_freq = 0.0
 
         # 平滑过渡
-        self.current_freq = self.freq_smooth * self.current_freq + (1 - self.freq_smooth) * self.target_freq
-        self.current_amp = self.amp_smooth * self.current_amp + (1 - self.amp_smooth) * self.target_amp
+        if self.target_amp > 0:
+            # 有声音 - 正常平滑
+            self.current_freq = self.freq_smooth * self.current_freq + (1 - self.freq_smooth) * self.target_freq
+            self.current_amp = self.amp_smooth * self.current_amp + (1 - self.amp_smooth) * self.target_amp
+        else:
+            # 静音状态 - 快速衰减
+            self.current_amp *= 0.7  # 每帧减少30%，快速静音
+            if self.current_amp < 0.001:  # 低于阈值直接归零
+                self.current_amp = 0.0
+                self.current_freq = 0.0
 
-        # 生成输出音频（正弦波合成）
+        # 生成输出音频
         output_length = len(audio_frame)
 
-        if self.current_freq > 50 and self.current_amp > 0.01:
-            # 生成正弦波
-            phase_increment = 2 * np.pi * self.current_freq / self.config.input_sample_rate
-            phases = self.synthesis_phase + np.arange(output_length) * phase_increment
-            output = self.current_amp * np.sin(phases)
-
-            # 更新相位
-            self.synthesis_phase = (self.synthesis_phase + output_length * phase_increment) % (2 * np.pi)
+        if self.synthesizer is not None:
+            # 使用加法波表合成器
+            if self.current_freq > 50 and self.current_amp > 0.01:
+                output = self.synthesizer.synthesize(
+                    frequency=self.current_freq,
+                    n_samples=output_length,
+                    amplitude=self.current_amp
+                )
+            else:
+                output = np.zeros(output_length, dtype=np.float32)
         else:
-            # 静音
-            output = np.zeros(output_length)
+            # 回退到简单正弦波合成
+            if self.current_freq > 50 and self.current_amp > 0.01:
+                # 生成正弦波
+                phase_increment = 2 * np.pi * self.current_freq / self.config.input_sample_rate
+                phases = self.synthesis_phase + np.arange(output_length) * phase_increment
+                output = self.current_amp * np.sin(phases)
+
+                # 更新相位
+                self.synthesis_phase = (self.synthesis_phase + output_length * phase_increment) % (2 * np.pi)
+            else:
+                # 静音
+                output = np.zeros(output_length, dtype=np.float32)
 
         # 更新统计
         self.frames_processed += 1

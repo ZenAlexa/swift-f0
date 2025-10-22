@@ -1,7 +1,7 @@
 # 开发状态文档
 
-> 最后更新：2024-10-21
-> 版本：v0.3.0
+> 最后更新：2024-10-22
+> 版本：v0.4.0
 
 ## 项目核心原则
 
@@ -40,7 +40,53 @@
 
 ## 当前开发阶段
 
-### 🎯 v0.3.0 - USB音频集成 (2024-10-21)
+### 🎯 v0.4.0 - 波表合成与音色优化 (2024-10-22) ✅ Alpha Demo
+
+**状态**: 完成
+
+**新增功能**:
+- ✅ **波表合成系统** - 加法合成引擎
+  - 实现文件: [additive_synthesizer.py](../swift_f0/realtime/additive_synthesizer.py)
+  - 波表生成: [wavetable_generator.py](../swift_f0/realtime/wavetable_generator.py)
+  - FFT-based 谐波合成
+  - 线性插值查表，O(1)复杂度
+
+- ✅ **3种乐器音色**
+  - 长笛 (Flute) - 8个谐波
+  - 小提琴 (Violin) - 16个谐波，1/n衰减
+  - 单簧管 (Clarinet) - 12个谐波，奇数谐波强调
+
+- ✅ **声音延续Bug修复**
+  - 问题: 停止哼唱后声音持续数秒
+  - 解决: 快速衰减机制（0.7倍/帧）
+  - 效果: 0.1-0.2秒内静音
+
+- ✅ **CLI增强**
+  - `--instrument` 选择音色
+  - `--synth` 选择合成器类型
+  - 向后兼容简单正弦波模式
+
+**技术指标**:
+- 延迟: ~80ms
+- 精度: <1% 音高误差
+- 音色: 3种乐器 + 纯正弦波
+- 波表大小: 16KB/乐器
+- 采样率: 16kHz (检测) / 24kHz (输入)
+
+**测试音频输出**:
+- 位置: [test_data/audio_output/wavetable_synthesis/](../test_data/audio_output/wavetable_synthesis/)
+- 16个WAV文件 (4音色 × 4音符)
+
+**完整链路**:
+```
+ESP32麦克风 → USB Serial → SwiftF0检测 → 波表合成 → 扬声器
+   24kHz        2Mbps      16kHz处理    长笛/小提琴    实时输出
+                                        /单簧管
+```
+
+---
+
+### 🏁 v0.3.0 - USB音频集成 (2024-10-21)
 
 **状态**: 完成
 
